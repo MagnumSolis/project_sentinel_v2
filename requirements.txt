@@ -1,0 +1,54 @@
+# Project Sentinel V2 - Dependencies
+# Production-grade multimodal RAG system
+
+# Core Vector Database
+qdrant-client>=1.9.0
+
+# Embedding Models (Local ONNX inference)
+fastembed>=0.2.0
+
+# Audio Transcription
+openai-whisper>=20231117
+
+# LLM Integration (Perplexity uses OpenAI-compatible API)
+openai>=1.0.0
+
+# Web Dashboard
+streamlit>=1.31.0
+
+# PDF Processing
+pypdf>=4.0.0
+
+# Geolocation
+python-geohash>=0.8.5
+
+# Configuration
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Async I/O
+aiofiles>=23.2.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# HTTP Requests
+httpx>=0.26.0
+requests>=2.31.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Audio Processing
+soundfile>=0.12.0
+
+# Progress Bars
+tqdm>=4.66.0
+
+# Logging
+structlog>=24.1.0
