@@ -112,7 +112,7 @@ class Settings(BaseSettings):
         description="Directory for processed files"
     )
     QDRANT_STORAGE: str = Field(
-        default="data/qdrant_storage",
+        default="data/qdrant_storage_v2",
         description="Qdrant persistent storage path"
     )
     

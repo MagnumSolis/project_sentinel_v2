@@ -297,6 +297,16 @@ Dashboard will be available at:
 Press Ctrl+C to exit.
     """)
     
+    # Close Qdrant connection to release lock before spawning dashboard
+    try:
+        if 'memory' in locals():
+            memory.client.close()
+            del memory
+        if 'cortex' in locals():
+            del cortex
+    except:
+        pass
+
     # Optionally launch dashboard
     launch = input("\nLaunch dashboard now? [Y/n]: ").strip().lower()
     if launch != 'n':
