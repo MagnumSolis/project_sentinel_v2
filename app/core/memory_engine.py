@@ -1,8 +1,8 @@
 """
 Project Sentinel V2 - Memory Engine
 
-Three-tier memory architecture inspired by hippocampal memory encoding.
-Manages Qdrant collections for semantic, episodic, and audio data.
+Four-tier memory architecture inspired by hippocampal memory encoding.
+Manages Qdrant collections for semantic, episodic, audio, and video data.
 """
 
 from qdrant_client import QdrantClient
@@ -50,7 +50,8 @@ class MemoryEngine:
         api_key: Optional[str] = None,
         text_vector_size: int = 384,
         vision_vector_size: int = 768,
-        audio_vector_size: int = 384
+        audio_vector_size: int = 384,
+        video_vector_size: int = 384
     ):
         """
         Initialize the Memory Engine.
@@ -104,6 +105,13 @@ class MemoryEngine:
                 distance=Distance.COSINE,
                 use_binary_quantization=True,
                 description="Emergency calls and audio transcripts"
+            ),
+            "sentinel_video": CollectionConfig(
+                name="sentinel_video",
+                vector_size=video_vector_size,
+                distance=Distance.COSINE,
+                use_binary_quantization=True,
+                description="Video recordings with transcripts"
             )
         }
     

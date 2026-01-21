@@ -3,8 +3,9 @@ Project Sentinel V2 - Universal Ingestor
 
 Unified ingestion pipeline for all modalities:
 - PDF documents (text extraction + chunking)
-- Images (visual embedding + optional Gemini analysis)
+- Images (visual embedding + optional AI analysis)
 - Audio files (Whisper transcription + stress analysis)
+- Video files (audio transcription + frame extraction)
 """
 
 from fastembed import TextEmbedding, ImageEmbedding
@@ -52,6 +53,7 @@ class UniversalIngestor:
     COLLECTION_SEMANTIC = "sentinel_semantic"
     COLLECTION_EPISODIC = "sentinel_episodic"
     COLLECTION_AUDIO = "sentinel_audio"
+    COLLECTION_VIDEO = "sentinel_video"
     
     def __init__(
         self,
@@ -471,6 +473,7 @@ class UniversalIngestor:
                 "description": description,
                 "thumbnail_b64": thumbnail_b64,
                 "file_name": path.name,
+                "file_path": str(path.absolute()),  # Added file_path
                 "source_url": f"file://{path.absolute()}"
             }
             
@@ -714,7 +717,8 @@ class UniversalIngestor:
                 "language": language,
                 "source": source,
                 "timestamp": timestamp,
-                "file_name": path.name
+                "file_name": path.name,
+                "file_path": str(path.absolute())  # Added file_path
             }
             
             if extra_metadata:
@@ -769,6 +773,219 @@ class UniversalIngestor:
                 except Exception:
                     pass
     
+    def ingest_video(
+        self,
+        file_path: str,
+        source: str = "field_recording",
+        extra_metadata: Optional[Dict[str, Any]] = None
+    ) -> IngestionResult:
+        """
+        Ingest a video file into the video collection.
+        
+        Extracts audio for transcription and creates a thumbnail from a frame.
+        
+        Args:
+            file_path: Path to video file
+            source: Source type (field_recording, news_footage, surveillance)
+            extra_metadata: Additional metadata
+        
+        Returns:
+            IngestionResult with status and stats
+        """
+        path = Path(file_path)
+        errors = []
+        
+        if not path.exists():
+            return IngestionResult(
+                file_path=str(path),
+                success=False,
+                vectors_added=0,
+                collection=self.COLLECTION_VIDEO,
+                errors=[f"File not found: {path}"],
+                metadata={}
+            )
+        
+        # Check for duplicates
+        file_hash = self._compute_file_hash(path)
+        if file_hash in self._ingested_hashes:
+            logger.info(f"Skipping duplicate video: {path.name}")
+            return IngestionResult(
+                file_path=str(path),
+                success=True,
+                vectors_added=0,
+                collection=self.COLLECTION_VIDEO,
+                errors=["Duplicate file skipped"],
+                metadata={}
+            )
+        
+        temp_audio_path = None
+        temp_frame_path = None
+        
+        try:
+            # Extract audio from video using ffmpeg
+            temp_audio = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            temp_audio.close()
+            temp_audio_path = Path(temp_audio.name)
+            
+            # Extract audio
+            audio_cmd = [
+                'ffmpeg', '-y', '-i', str(path),
+                '-ar', '16000', '-ac', '1', '-f', 'wav',
+                str(temp_audio_path)
+            ]
+            
+            result = subprocess.run(audio_cmd, capture_output=True, timeout=120)
+            
+            if result.returncode != 0:
+                errors.append("Audio extraction failed")
+                logger.warning(f"FFmpeg audio extraction failed: {result.stderr.decode()[:200]}")
+            
+            # Extract a frame for thumbnail
+            temp_frame = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+            temp_frame.close()
+            temp_frame_path = Path(temp_frame.name)
+            
+            frame_cmd = [
+                'ffmpeg', '-y', '-i', str(path),
+                '-ss', '00:00:02',  # 2 seconds in
+                '-vframes', '1',
+                '-vf', 'scale=320:-1',
+                str(temp_frame_path)
+            ]
+            
+            subprocess.run(frame_cmd, capture_output=True, timeout=30)
+            
+            # Create thumbnail from extracted frame
+            thumbnail_b64 = ""
+            if temp_frame_path.exists() and temp_frame_path.stat().st_size > 0:
+                thumbnail_b64 = self._image_to_base64_thumbnail(temp_frame_path, max_size=(320, 180))
+            
+            # Get video duration
+            duration_seconds = 0.0
+            try:
+                probe_cmd = [
+                    'ffprobe', '-v', 'error',
+                    '-show_entries', 'format=duration',
+                    '-of', 'default=noprint_wrappers=1:nokey=1',
+                    str(path)
+                ]
+                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+                if probe_result.returncode == 0:
+                    duration_seconds = float(probe_result.stdout.strip())
+            except Exception as e:
+                logger.warning(f"Could not get video duration: {e}")
+            
+            # Transcribe audio if extraction succeeded
+            transcript = ""
+            language = "unknown"
+            stress_level = 0.5
+            
+            if temp_audio_path.exists() and temp_audio_path.stat().st_size > 0:
+                try:
+                    logger.info(f"Transcribing video audio: {path.name}...")
+                    result = self.whisper_model.transcribe(str(temp_audio_path))
+                    transcript = result.get("text", "").strip()
+                    language = result.get("language", "unknown")
+                    stress_level = self._estimate_stress_level(temp_audio_path)
+                except Exception as e:
+                    errors.append(f"Transcription failed: {e}")
+                    logger.warning(f"Video transcription failed: {e}")
+            
+            if not transcript:
+                transcript = "[No audio transcript available]"
+            
+            # Generate embedding from transcript
+            embedding = list(self.text_embedder.embed([transcript]))[0].tolist()
+            
+            # Build payload
+            timestamp = datetime.utcnow().isoformat()
+            payload = {
+                "transcript": transcript,
+                "duration_seconds": duration_seconds,
+                "stress_level": stress_level,
+                "language": language,
+                "source": source,
+                "timestamp": timestamp,
+                "file_name": path.name,
+                "file_path": str(path.absolute()),
+                "thumbnail_b64": thumbnail_b64,
+                "media_type": "video"
+            }
+            
+            if extra_metadata:
+                payload.update(extra_metadata)
+            
+            # Upsert
+            point = PointStruct(
+                id=self._generate_id(),
+                vector=embedding,
+                payload=payload
+            )
+            
+            self.client.upsert(
+                collection_name=self.COLLECTION_VIDEO,
+                points=[point],
+                wait=True
+            )
+            
+            self._ingested_hashes.add(file_hash)
+            logger.info(f"✓ Ingested video {path.name}: {len(transcript)} chars transcript")
+            
+            return IngestionResult(
+                file_path=str(path),
+                success=True,
+                vectors_added=1,
+                collection=self.COLLECTION_VIDEO,
+                errors=errors,
+                metadata={
+                    "transcript_length": len(transcript),
+                    "duration_seconds": duration_seconds,
+                    "language": language
+                }
+            )
+            
+        except subprocess.TimeoutExpired:
+            errors.append("Video processing timed out")
+            logger.error(f"Video processing timed out for {path.name}")
+            return IngestionResult(
+                file_path=str(path),
+                success=False,
+                vectors_added=0,
+                collection=self.COLLECTION_VIDEO,
+                errors=errors,
+                metadata={}
+            )
+        except FileNotFoundError:
+            errors.append("FFmpeg not found - install with: sudo apt install ffmpeg")
+            logger.error("FFmpeg not found")
+            return IngestionResult(
+                file_path=str(path),
+                success=False,
+                vectors_added=0,
+                collection=self.COLLECTION_VIDEO,
+                errors=errors,
+                metadata={}
+            )
+        except Exception as e:
+            logger.error(f"Video ingestion failed for {path.name}: {e}")
+            errors.append(str(e))
+            return IngestionResult(
+                file_path=str(path),
+                success=False,
+                vectors_added=0,
+                collection=self.COLLECTION_VIDEO,
+                errors=errors,
+                metadata={}
+            )
+        finally:
+            # Cleanup temp files
+            for temp_path in [temp_audio_path, temp_frame_path]:
+                if temp_path and temp_path.exists():
+                    try:
+                        os.unlink(temp_path)
+                    except Exception:
+                        pass
+    
     def ingest_file(
         self,
         file_path: str,
@@ -793,6 +1010,8 @@ class UniversalIngestor:
             return self.ingest_image(file_path, **kwargs)
         elif suffix in ['.mp3', '.wav', '.m4a', '.ogg', '.flac']:
             return self.ingest_audio(file_path, **kwargs)
+        elif suffix in ['.mp4', '.webm', '.mov', '.avi', '.mkv']:
+            return self.ingest_video(file_path, **kwargs)
         else:
             return IngestionResult(
                 file_path=str(path),
@@ -831,7 +1050,8 @@ class UniversalIngestor:
         
         # Collect all supported files
         extensions = {'.pdf', '.jpg', '.jpeg', '.png', '.webp', '.bmp',
-                      '.mp3', '.wav', '.m4a', '.ogg', '.flac'}
+                      '.mp3', '.wav', '.m4a', '.ogg', '.flac',
+                      '.mp4', '.webm', '.mov', '.avi', '.mkv'}
         
         if recursive:
             files = [f for f in path.rglob('*') if f.suffix.lower() in extensions]
@@ -847,7 +1067,8 @@ class UniversalIngestor:
             "by_collection": {
                 self.COLLECTION_SEMANTIC: 0,
                 self.COLLECTION_EPISODIC: 0,
-                self.COLLECTION_AUDIO: 0
+                self.COLLECTION_AUDIO: 0,
+                self.COLLECTION_VIDEO: 0
             },
             "errors": []
         }

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
         default="Qdrant/clip-ViT-B-32-vision",
         description="FastEmbed model for image embeddings (512 dimensions)"
     )
+    VISION_TEXT_MODEL: str = Field(
+        default="Qdrant/clip-ViT-B-32-text",
+        description="FastEmbed model for text-to-image search (512 dimensions)"
+    )
     AUDIO_EMBEDDING_MODEL: str = Field(
         default="BAAI/bge-small-en-v1.5",
         description="Model for audio transcript embeddings"
@@ -126,6 +130,7 @@ class Settings(BaseSettings):
     COLLECTION_SEMANTIC: str = "sentinel_semantic"
     COLLECTION_EPISODIC: str = "sentinel_episodic"
     COLLECTION_AUDIO: str = "sentinel_audio"
+    COLLECTION_VIDEO: str = "sentinel_video"
     
     # =========================================================================
     # VECTOR DIMENSIONS (Internal)
@@ -133,6 +138,7 @@ class Settings(BaseSettings):
     TEXT_VECTOR_SIZE: int = 384
     VISION_VECTOR_SIZE: int = 512  # clip-ViT-B-32-vision produces 512-dim vectors
     AUDIO_VECTOR_SIZE: int = 384
+    VIDEO_VECTOR_SIZE: int = 384  # Video uses transcript embeddings same as audio
     
     class Config:
         env_file = ".env"

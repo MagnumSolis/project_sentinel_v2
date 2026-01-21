@@ -3,6 +3,7 @@ Project Sentinel V2 - Sentinel Cortex
 
 The "brain" of the system - handles search and retrieval across all memory layers.
 Performs parallel semantic search with time decay and damage score boosting.
+Supports semantic, episodic, audio, and video collections.
 """
 
 from qdrant_client import QdrantClient
@@ -69,7 +70,7 @@ class CombinedSearchResults:
 
 class SentinelCortex:
     """
-    Search and retrieval engine combining all three memory layers.
+    Search and retrieval engine combining all four memory layers.
     
     Features:
     - Parallel semantic search across all collections
@@ -81,11 +82,13 @@ class SentinelCortex:
     COLLECTION_SEMANTIC = "sentinel_semantic"
     COLLECTION_EPISODIC = "sentinel_episodic"
     COLLECTION_AUDIO = "sentinel_audio"
+    COLLECTION_VIDEO = "sentinel_video"
     
     def __init__(
         self,
         qdrant_client: QdrantClient,
         text_embedding_model: str = "BAAI/bge-small-en-v1.5",
+        vision_text_model: str = "Qdrant/clip-ViT-B-32-text",  # New param
         time_decay_factor: float = 0.95,
         search_limit: int = 5,
         similarity_threshold: float = 0.6
@@ -95,8 +98,9 @@ class SentinelCortex:
         
         Args:
             qdrant_client: Connected Qdrant client instance
-            text_embedding_model: Model name for query embedding
-            time_decay_factor: Score multiplier per day old (0.95 = 5% reduction/day)
+            text_embedding_model: Model name for standard query embedding
+            vision_text_model: Model name for vision-compatible query embedding
+            time_decay_factor: Score multiplier per day old
             search_limit: Max results per collection
             similarity_threshold: Minimum score to include result
         """
@@ -105,25 +109,31 @@ class SentinelCortex:
         self.search_limit = search_limit
         self.similarity_threshold = similarity_threshold
         
-        # Initialize text embedder for queries
+        # Initialize text embedder for standard queries (384 dim)
         logger.info(f"Loading text embedding model: {text_embedding_model}")
         self.text_embedder = TextEmbedding(model_name=text_embedding_model)
-        logger.info("Text embedder loaded successfully")
+        
+        # Initialize vision-text embedder for image search (512 dim)
+        logger.info(f"Loading vision-text embedding model: {vision_text_model}")
+        self.vision_text_embedder = TextEmbedding(model_name=vision_text_model)
+        
+        logger.info("Embedders loaded successfully")
         
         # Thread pool for parallel operations
         self._executor = ThreadPoolExecutor(max_workers=3)
     
-    def _embed_query(self, query: str) -> List[float]:
+    def _embed_query(self, query: str, model_type: str = "text") -> List[float]:
         """
         Convert query text to embedding vector.
         
         Args:
             query: Search query text
-        
-        Returns:
-            List of floats representing the query vector
+            model_type: "text" (standard) or "vision" (CLIP)
         """
-        embeddings = list(self.text_embedder.embed([query]))
+        if model_type == "vision":
+            embeddings = list(self.vision_text_embedder.embed([query]))
+        else:
+            embeddings = list(self.text_embedder.embed([query]))
         return embeddings[0].tolist()
     
     def _apply_time_decay(
@@ -232,7 +242,7 @@ class SentinelCortex:
         except Exception as e:
             logger.error(f"Search failed for '{collection_name}': {e}")
             return []
-    
+
     def search(
         self,
         query: str,
@@ -242,15 +252,6 @@ class SentinelCortex:
     ) -> CombinedSearchResults:
         """
         Perform parallel semantic search across all specified collections.
-        
-        Args:
-            query: Natural language search query
-            collections: List of collections to search (default: all)
-            limit: Max results per collection (default: self.search_limit)
-            filters: Optional filter conditions per collection
-        
-        Returns:
-            CombinedSearchResults with ranked, deduplicated results
         """
         import time
         start_time = time.time()
@@ -260,23 +261,21 @@ class SentinelCortex:
             collections = [
                 self.COLLECTION_SEMANTIC,
                 self.COLLECTION_EPISODIC,
-                self.COLLECTION_AUDIO
+                self.COLLECTION_AUDIO,
+                self.COLLECTION_VIDEO
             ]
         
         if limit is None:
             limit = self.search_limit
         
-        # Embed the query
+        # Embed the query for both spaces
         try:
-            query_vector = self._embed_query(query)
+            text_query_vector = self._embed_query(query, "text")
+            vision_query_vector = self._embed_query(query, "vision")
         except Exception as e:
             logger.error(f"Failed to embed query: {e}")
             return CombinedSearchResults(
-                query=query,
-                results=[],
-                total_count=0,
-                search_time_ms=0,
-                collections_searched=[]
+                query=query, results=[], total_count=0, search_time_ms=0, collections_searched=[]
             )
         
         # Reference time for decay calculation
@@ -286,7 +285,15 @@ class SentinelCortex:
         all_results: List[SearchResult] = []
         
         for collection in collections:
-            raw_results = self._search_collection(collection, query_vector, limit)
+            # Select appropriate vector
+            if collection == self.COLLECTION_EPISODIC:
+                # Images use vision vector (512 dim)
+                query_vec = vision_query_vector
+            else:
+                # Text/Audio/Video use standard vector (384 dim)
+                query_vec = text_query_vector
+                
+            raw_results = self._search_collection(collection, query_vec, limit)
             
             for point in raw_results:
                 payload = point.payload or {}
@@ -368,6 +375,19 @@ class SentinelCortex:
         results = self.search(
             query=query,
             collections=[self.COLLECTION_AUDIO],
+            limit=limit
+        )
+        return results.results
+    
+    def search_video(
+        self,
+        query: str,
+        limit: Optional[int] = None
+    ) -> List[SearchResult]:
+        """Search only the video collection."""
+        results = self.search(
+            query=query,
+            collections=[self.COLLECTION_VIDEO],
             limit=limit
         )
         return results.results
