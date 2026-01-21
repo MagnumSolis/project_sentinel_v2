@@ -36,6 +36,7 @@ A premium, "Glassmorphism" UI built with Streamlit:
 ### Prerequisites
 *   Python 3.10+
 *   Docker (for Qdrant)
+*   FFmpeg (for audio/video processing)
 *   Top-tier bravery 🫡
 
 ### 1. Installation
