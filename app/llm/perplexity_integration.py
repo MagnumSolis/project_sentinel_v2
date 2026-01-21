@@ -80,7 +80,29 @@ Focus on: damage assessment, rescue priorities, resource allocation, and situati
                 self.available = False
         else:
             logger.info("Running in offline mode (Perplexity disabled)")
-    
+            
+    def set_offline_mode(self, offline: bool):
+        """
+        Dynamically set the offline/online mode.
+        If switching to online (offline=False), attempts to initialize the client.
+        """
+        self.offline_mode = offline
+        
+        if not offline and not self.client and self.api_key:
+            try:
+                self.client = OpenAI(
+                    api_key=self.api_key,
+                    base_url="https://api.perplexity.ai"
+                )
+                self.available = True
+                logger.info(f"Perplexity API initialized dynamically with model: {self.model_name}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Perplexity API dynamically: {e}")
+                self.available = False
+                self.offline_mode = True
+        
+        # If switching to offline, we don't destroy the client, just ignore it.
+
     def generate_response(
         self,
         query: str,

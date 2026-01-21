@@ -52,3 +52,10 @@ tqdm>=4.66.0
 
 # Logging
 structlog>=24.1.0
+
+# Swarm-Sync & Agents
+langgraph>=0.0.10
+langchain>=0.1.0
+langchain-openai>=0.0.5
+merkle-json>=1.0.0
+networkx>=3.0
