@@ -112,11 +112,11 @@ graph TD
     UI --> Ingest[Universal Ingestor]
     UI --> Cortex[Sentinel Cortex]
     
-    Ingest --> TextEmb[FastEmbed (Text)]
-    Ingest --> VisionEmb[FastEmbed (Vision)]
+    Ingest --> TextEmb["FastEmbed (Text)"]
+    Ingest --> VisionEmb["FastEmbed (Vision)"]
     Ingest --> Whisper[Whisper ASR]
     
-    Cortex --> Qdrant[(Qdrant Vector DB)]
+    Cortex --> Qdrant[("Qdrant Vector DB")]
     Cortex --> Perplexity[Perplexity LLM]
     
     Qdrant -- Semantic/Audio Nodes --> Cortex
