@@ -51,7 +51,8 @@ class MemoryEngine:
         text_vector_size: int = 384,
         vision_vector_size: int = 768,
         audio_vector_size: int = 384,
-        video_vector_size: int = 384
+        video_vector_size: int = 384,
+        storage_path: Optional[str] = None
     ):
         """
         Initialize the Memory Engine.
@@ -63,22 +64,30 @@ class MemoryEngine:
             text_vector_size: Dimension of text embeddings
             vision_vector_size: Dimension of vision embeddings
             audio_vector_size: Dimension of audio transcript embeddings
+            storage_path: Optional path for local storage (Edge mode)
         """
         self.host = host
         self.port = port
         self.api_key = api_key
+        self.storage_path = storage_path
         
-        # Initialize Qdrant client using explicit URL to avoid SSL issues
+        # Initialize Qdrant client
         try:
-            # Use URL format to ensure HTTP (not HTTPS)
-            url = f"http://{host}:{port}"
-            self.client = QdrantClient(
-                url=url,
-                api_key=api_key,
-                prefer_grpc=False,
-                timeout=30
-            )
-            logger.info(f"Connected to Qdrant at {url}")
+            if self.storage_path:
+                # Local/Edge Mode
+                logger.info(f"Initializing Qdrant in Local/Edge mode at {self.storage_path}")
+                self.client = QdrantClient(path=self.storage_path)
+            else:
+                # Server Mode
+                # Use URL format to ensure HTTP (not HTTPS)
+                url = f"http://{host}:{port}"
+                self.client = QdrantClient(
+                    url=url,
+                    api_key=api_key,
+                    prefer_grpc=False,
+                    timeout=30
+                )
+                logger.info(f"Connected to Qdrant at {url}")
         except Exception as e:
             logger.error(f"Failed to connect to Qdrant: {e}")
             raise

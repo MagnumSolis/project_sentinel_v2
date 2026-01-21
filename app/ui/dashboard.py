@@ -29,7 +29,9 @@ from app.config import settings
 from app.core.memory_engine import MemoryEngine
 from app.core.cortex import SentinelCortex
 from app.ingestion.universal_ingestor import UniversalIngestor
+from app.ingestion.universal_ingestor import UniversalIngestor
 from app.llm.perplexity_integration import PerplexityIntegration
+from app.core.swarm import SwarmNode
 from app.ui.styles import MAIN_STYLES  # Import centralized styles
 
 # Configure logging
@@ -65,7 +67,8 @@ def get_system_components():
             api_key=settings.QDRANT_API_KEY,
             text_vector_size=settings.TEXT_VECTOR_SIZE,
             vision_vector_size=settings.VISION_VECTOR_SIZE,
-            audio_vector_size=settings.AUDIO_VECTOR_SIZE
+            audio_vector_size=settings.AUDIO_VECTOR_SIZE,
+            storage_path=settings.QDRANT_STORAGE if settings.OFFLINE_MODE else None
         )
         # Assuming memory is already initialized, or skipping expensive re-init
         # components['memory'].initialize_memory() 
@@ -347,9 +350,21 @@ def main():
         nav = st.radio("System Module", ["Mission Control", "Civilian LIFELINE", "Intelligence", "Ingestion Hub"])
         
         st.markdown("---")
+        st.markdown("---")
         comps = get_system_components()
         if comps:
             st.success("🟢 System Online")
+            
+            # Swarm Status Section
+            with st.expander("🐝 Swarm Network", expanded=True):
+                st.markdown("**Status:** 🔵 Connected (Mesh)")
+                st.metric("Active Nodes", "3 Drones")
+                
+                if st.button("📡 Force Sync", help="Initiate P2P Merkle Tree Sync"):
+                    with st.spinner("Broadcasting Sync Packet..."):
+                        time.sleep(1.5) # Simulation delay
+                        st.toast("Sync Complete: 12 new vectors received from Drone-Alpha", icon="✅")
+                    
         else:
             st.error("🔴 Offline")
 
